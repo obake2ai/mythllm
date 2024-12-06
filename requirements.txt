@@ -1,5 +1,5 @@
-torch==2.4.0            # PyTorch with CUDA 12.1 support
-wandb==0.18.7           # Weights & Biases
-click==8.1.7            # Command-line argument handling
-numpy==1.26.4           # Numerical computations
-regex==2.5.147          # Text processing
+torch
+wandb
+click
+numpy
+regex
