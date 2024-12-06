@@ -58,7 +58,8 @@ def train_model(**kwargs):
     model = torch.compile(model)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.lr)
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=config.lr_step, gamma=config.lr_gamma)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=500, T_mult=2, eta_min=config.lr*0.01)
+
 
     # Step 4: Create directory for saving models
     current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
