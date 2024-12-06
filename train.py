@@ -31,10 +31,18 @@ wandb.login(key=wandb_api_key)
 @click.option('--epochs', default=50000, show_default=True, help="Number of training epochs")
 @click.option('--eval-steps', default=500, show_default=True, help="Evaluation step interval")
 @click.option('--gpu-count', default=1, show_default=True, help="Number of GPUs to use")
+
 def train_model(**kwargs):
     """
     Main training function that initializes wandb and starts training.
     """
+
+    # Set required environment variables for distributed training
+    os.environ["MASTER_ADDR"] = "127.0.0.1"  # Master node address
+    os.environ["MASTER_PORT"] = "12355"      # Master node port
+    os.environ["WORLD_SIZE"] = str(kwargs["gpu_count"])
+    os.environ["RANK"] = str(0)  # Single node training
+    
     dist.init_process_group(backend='nccl', world_size=kwargs['gpu_count'], rank=0)  # Initialize process group
     device = torch.device(f'cuda:{dist.get_rank()}')  # Select the appropriate GPU
 
