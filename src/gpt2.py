@@ -97,7 +97,7 @@ class GPTBlock(nn.Module):
 
 
 class GPT(nn.Module):
-    def __init__(self, vocab_size, d_model, n_heads, n_layers):
+    def __init__(self, vocab_size, d_model, n_heads, n_layers, context_length):
         super().__init__()
         self.wte = nn.Embedding(vocab_size, d_model) # word token embeddings
         self.wpe = PositionalEncoding(context_length, d_model) # word position encodings

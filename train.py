@@ -54,7 +54,7 @@ def train_model(**kwargs):
         data, config.train_split, config.train_batch_size, config.eval_batch_size, config.context_length
     )
 
-    model = GPT(vocab_size=vocab_size, d_model=config.d_model, n_heads=config.n_heads, n_layers=config.n_layers).to(device)
+    model = GPT(vocab_size=vocab_size, d_model=config.d_model, n_heads=config.n_heads, n_layers=config.n_layers, context_length=config.context_length).to(device)
     model = torch.compile(model)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.lr)
