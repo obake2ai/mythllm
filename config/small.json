@@ -10,6 +10,6 @@
     "n_layers": 1,
     "data_dir": "./datasets/myth_dataset_v2",
     "lr": 0.0001,
-    "epochs": 10000,
+    "epochs": 5000,
     "eval_steps": 500
 }
