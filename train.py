@@ -8,6 +8,9 @@ import click
 from src.gpt2 import GPT
 from src.dataloader import DataLoader
 
+from config.token import wandb_api_key, openai
+wandb.login(key=wandb_api_key)
+
 @click.command()
 @click.option('--project-name', default="default_project", show_default=True, help="WandB project name")
 @click.option('--save-dir', default="./checkpoints/", show_default=True, help="Directory to save model checkpoints")
