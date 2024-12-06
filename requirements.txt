@@ -3,3 +3,4 @@ wandb
 click
 numpy
 regex
+openai
