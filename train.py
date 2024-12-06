@@ -12,7 +12,7 @@ from config.token import wandb_api_key, openai
 wandb.login(key=wandb_api_key)
 
 @click.command()
-@click.option('--project-name', default="default_project", show_default=True, help="WandB project name")
+@click.option('--project-name', default="mythllm-test", show_default=True, help="WandB project name")
 @click.option('--save-dir', default="./checkpoints/", show_default=True, help="Directory to save model checkpoints")
 @click.option('--train-batch-size', default=16, show_default=True, help="Training batch size")
 @click.option('--eval-batch-size', default=8, show_default=True, help="Evaluation batch size")
