@@ -44,6 +44,7 @@ def train_model(**kwargs):
 
     # Step 2: Tokenize the text
     tokenizer = tiktoken.get_encoding('gpt2')
+    vocab_size = tokenizer.n_vocab
     data = torch.tensor(tokenizer.encode(formatted_text), dtype=torch.long, device=device)
 
     print(f"\nTensor shape: {data.shape}")
@@ -53,7 +54,7 @@ def train_model(**kwargs):
         data, config.train_split, config.train_batch_size, config.eval_batch_size, config.context_length
     )
 
-    model = GPT(vocab_size=config.vocab_size, d_model=config.d_model, n_heads=config.n_heads, n_layers=config.n_layers).to(device)
+    model = GPT(vocab_size=vocab_size, d_model=config.d_model, n_heads=config.n_heads, n_layers=config.n_layers).to(device)
     model = torch.compile(model)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.lr)
