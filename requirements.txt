@@ -4,3 +4,4 @@ click
 numpy
 regex
 openai
+tiktoken
