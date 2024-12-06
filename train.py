@@ -35,8 +35,8 @@ def train_model(**kwargs):
     Main training function that initializes wandb and starts training.
     """
     # Load JSON config file if provided
-    if kwargs['config_file']:
-        with open(kwargs['config_file'], 'r') as f:
+    if kwargs['config']:
+        with open(kwargs['config'], 'r') as f:
             json_config = json.load(f)
         # Overwrite default options with values from JSON
         kwargs.update(json_config)
