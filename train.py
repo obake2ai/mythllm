@@ -5,6 +5,8 @@ from datetime import datetime
 import torch
 import wandb
 import click
+import tiktoken
+
 from src.gpt2 import GPT
 from src.dataloader import DataLoader
 
@@ -41,7 +43,7 @@ def train_model(**kwargs):
     formatted_text = load_and_format_text(config.data_dir)
 
     # Step 2: Tokenize the text
-    tokenizer = parameter.wandb.tokenizer  # Replace with your tokenizer instance
+    tokenizer = tiktoken.get_encoding('gpt2')
     data = torch.tensor(tokenizer.encode(formatted_text), dtype=torch.long, device=device)
 
     print(f"\nTensor shape: {data.shape}")
