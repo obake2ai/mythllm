@@ -8,8 +8,8 @@
     "d_model": 1024,
     "n_heads": 12,
     "n_layers": 8,
-    "data_dir": "./datasets/myth_dataset_v2",
-    "lr": 0.0001,
+    "data_dir": "./datasets/myth_dataset_v1",
+    "lr": 0.0002,
     "epochs": 10000,
     "eval_steps": 500
 }

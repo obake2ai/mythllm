@@ -9,7 +9,7 @@
     "n_heads": 4,
     "n_layers": 1,
     "data_dir": "./datasets/myth_dataset_v1",
-    "lr": 0.0001,
+    "lr": 0.0005,
     "epochs": 5000,
     "eval_steps": 500
 }
