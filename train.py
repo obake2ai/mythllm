@@ -1,5 +1,6 @@
 import os
 import re
+import json
 from datetime import datetime
 
 import torch
@@ -27,11 +28,18 @@ wandb.login(key=wandb_api_key)
 @click.option('--lr', default=5e-4, show_default=True, help="Learning rate")
 @click.option('--epochs', default=50000, show_default=True, help="Number of training epochs")
 @click.option('--eval-steps', default=500, show_default=True, help="Evaluation step interval")
+@click.option('--config', default=None, type=click.Path(exists=True), help="Path to JSON config file")
 
 def train_model(**kwargs):
     """
     Main training function that initializes wandb and starts training.
     """
+    # Load JSON config file if provided
+    if kwargs['config_file']:
+        with open(kwargs['config_file'], 'r') as f:
+            json_config = json.load(f)
+        # Overwrite default options with values from JSON
+        kwargs.update(json_config)
 
     # Initialize wandb with all passed options
     wandb.init(project=kwargs["project_name"], config=kwargs)
@@ -60,7 +68,6 @@ def train_model(**kwargs):
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.lr)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=500, T_mult=2, eta_min=config.lr*0.01)
 
-
     # Step 4: Create directory for saving models
     current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
     model_save_dir = os.path.join(config.save_dir, current_time)
@@ -73,6 +80,7 @@ def train_model(**kwargs):
     wandb.finish()
 
 
+# Other functions remain unchanged
 def load_and_format_text(data_dir):
     """Load and format text data from the specified directory."""
     combined_text = ""
