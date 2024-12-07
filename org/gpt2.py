@@ -193,8 +193,9 @@ class GPTBlock(nn.Module):
 
 
 class GPT(nn.Module):
-    def __init__(self, vocab_size, d_model, n_heads, n_layers):
+    def __init__(self, vocab_size, d_model, n_heads, n_layers, context_length):
         super().__init__()
+        self.context_length = context_length
         self.wte = nn.Embedding(vocab_size, d_model)  # word token embeddings
         self.wpe = PositionalEncoding(
             context_length, d_model
@@ -230,8 +231,8 @@ class GPT(nn.Module):
         for _ in range(max_new_tokens):
             current_seq_length = inputs.size(1)
             # Truncate inputs if it exceeds context_length
-            if current_seq_length > context_length:
-                inputs = inputs[:, -context_length:]
+            if current_seq_length > self.context_length:
+                inputs = inputs[:, -self.context_length:]
             # we only pass targets on training to calculate loss
             logits, _ = self(inputs)
             # for all the batches, get the embeds for last predicted sequence
@@ -243,41 +244,3 @@ class GPT(nn.Module):
             inputs = torch.cat([inputs, idx_next], dim=1)
             output = torch.cat([output, idx_next], dim=1)
         return [tokenizer.decode(out.tolist()) for out in output]
-
-
-m = GPT(vocab_size=vocab_size, d_model=d_model, n_heads=n_heads, n_layers=n_layers).to(device)
-m = torch.compile(m)
-
-
-optim = torch.optim.AdamW(m.parameters(), lr=lr, weight_decay=0.1)
-scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optim, T_max=3000, eta_min=lr*0.1)
-
-for e in range(epochs):
-    xb, yb = train_loader.get_batch()
-
-    logits, loss = m(xb, yb)
-    optim.zero_grad(set_to_none=True)
-    loss.backward()
-
-    # gradient clipping
-    torch.nn.utils.clip_grad_norm_(m.parameters(), max_norm=1)
-
-    optim.step()
-    scheduler.step()
-
-    if e % eval_steps == 0 or e == epochs-1:
-        m.eval()
-        with torch.no_grad():
-            xvb, yvb = eval_loader.get_batch()
-            _, e_loss = m(xvb, yvb)
-
-        print(f"Epoch: {e}\ttrain_loss: {loss:.4f}\teval_loss: {e_loss:.4f}")
-
-        m.train()  # Back to training mode
-
-# saying to torch that do not store gradients for whatever we do below
-with torch.no_grad():
-    input = torch.tensor(
-        tokenizer.encode("Love "), dtype=torch.long, device=device
-    ).unsqueeze(0)
-    print(m.generate(input, max_new_tokens=500)[0])
