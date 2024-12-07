@@ -9,7 +9,7 @@ import click
 import tiktoken
 from tokenizers import Tokenizer
 
-import tqdm
+from tqdm import tqdm
 
 from src.gpt2 import GPT
 from src.dataloader import DataLoader
