@@ -9,6 +9,8 @@ import click
 import tiktoken
 from tokenizers import Tokenizer
 
+import tqdm
+
 from src.gpt2 import GPT
 from src.dataloader import DataLoader
 
@@ -132,18 +134,28 @@ def train_and_evaluate(model, train_loader, eval_loader, optimizer, scheduler, s
         model.train()
         optimizer.zero_grad(set_to_none=True)
 
-        for step, (xb, yb) in enumerate(train_loader):
-            logits, loss = model(xb, yb)
-            loss = loss / accumulation_steps  # Normalize loss for accumulation
-            loss.backward()
+        epoch_loss = 0.0
+        total_steps = len(train_loader)
 
-            if (step + 1) % accumulation_steps == 0 or step == len(train_loader) - 1:
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1)
-                optimizer.step()
-                optimizer.zero_grad(set_to_none=True)
-                scheduler.step()
+        # Add progress bar
+        with tqdm(total=total_steps, desc=f"Epoch {e + 1}/{config.epochs}") as pbar:
+            for step, (xb, yb) in enumerate(train_loader):
+                logits, loss = model(xb, yb)
+                loss = loss / accumulation_steps  # Normalize loss for accumulation
+                loss.backward()
 
-        train_loss[e] = loss.item()
+                epoch_loss += loss.item()
+
+                if (step + 1) % accumulation_steps == 0 or step == len(train_loader) - 1:
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1)
+                    optimizer.step()
+                    optimizer.zero_grad(set_to_none=True)
+                    scheduler.step()
+
+                pbar.update(1)
+                pbar.set_postfix({"loss": loss.item()})
+
+        train_loss[e] = epoch_loss / total_steps
 
         # Evaluation logic
         if e % config.eval_steps == 0 or e == config.epochs - 1:
@@ -153,11 +165,10 @@ def train_and_evaluate(model, train_loader, eval_loader, optimizer, scheduler, s
                     _, eval_loss = model(xvb, yvb)
                     break  # Only evaluate one batch to save time
 
-            print(f"Epoch: {e}\ttrain_loss: {loss:.4f}\teval_loss: {eval_loss:.4f}")
-            wandb.log({"train_loss": loss.item(), "eval_loss": eval_loss.item()})
+            print(f"\nEpoch: {e}\ttrain_loss: {train_loss[e]:.4f}\teval_loss: {eval_loss:.4f}")
+            wandb.log({"train_loss": train_loss[e], "eval_loss": eval_loss.item()})
 
-            save_model(model, optimizer, scheduler, e, loss.item(), eval_loss.item(), save_dir, config)
-
+            save_model(model, optimizer, scheduler, e, train_loss[e], eval_loss.item(), save_dir, config)
 def save_model(model, optimizer, scheduler, epoch, train_loss, eval_loss, save_dir, config):
     """Save the model state and relevant information."""
     save_path = os.path.join(save_dir, f"gpt_model_epoch_{epoch}.pth")
