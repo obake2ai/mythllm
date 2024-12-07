@@ -130,6 +130,50 @@ def format_text(combined_text):
     combined_text = re.sub(r"(?<!\n)\n(?!\n)", " ", combined_text)
     return "\n".join(line for line in combined_text.splitlines() if line.strip())
 
+def train_and_evaluate(model, train_loader, eval_loader, optimizer, scheduler, save_dir, config):
+    """Train and evaluate the model."""
+    train_loss = {}
+
+    for e in range(config.epochs):
+        xb, yb = train_loader.get_batch()
+        model.train()
+
+        logits, loss = model(xb, yb)
+        optimizer.zero_grad(set_to_none=True)
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1)
+        optimizer.step()
+        scheduler.step()
+
+        train_loss[e] = loss.item()
+
+        # Evaluate periodically
+        if e % config.eval_steps == 0 or e == config.epochs - 1:
+            model.eval()
+            with torch.no_grad():
+                xvb, yvb = eval_loader.get_batch()
+                _, eval_loss = model(xvb, yvb)
+
+            print(f"Epoch: {e}\ttrain_loss: {loss:.4f}\teval_loss: {eval_loss:.4f}")
+            wandb.log({"train_loss": loss.item(), "eval_loss": eval_loss.item()})
+
+            # Save the model
+            save_model(model, optimizer, scheduler, e, loss.item(), eval_loss.item(), save_dir, config)
+
+
+def save_model(model, optimizer, scheduler, epoch, train_loss, eval_loss, save_dir, config):
+    """Save the model state and relevant information."""
+    save_path = os.path.join(save_dir, f"gpt_model_epoch_{epoch}.pth")
+    torch.save({
+        'model_state_dict': model.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict(),
+        'scheduler_state_dict': scheduler.state_dict(),
+        'epoch': epoch,
+        'train_loss': train_loss,
+        'eval_loss': eval_loss,
+        'config': dict(config)
+    }, save_path)
+    print(f"Model saved to {save_path}")
 
 if __name__ == "__main__":
     train_model()
