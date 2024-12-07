@@ -90,6 +90,16 @@ def train_model(**kwargs):
     # Finalize wandb
     wandb.finish()
 
+def initialize_data_loaders(data, train_split, train_batch_size, eval_batch_size, context_length):
+    """Initialize data loaders for training and evaluation."""
+    n_data = len(data)
+    train_data = data[:int(n_data * train_split)]
+    eval_data = data[int(n_data * train_split):]
+
+    train_loader = DataLoader(train_data, train_batch_size, context_length)
+    eval_loader = DataLoader(eval_data, eval_batch_size, context_length)
+
+    return train_loader, eval_loader
 
 def load_and_format_text(data_dir):
     """Load and format text data from the specified directory."""
