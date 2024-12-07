@@ -132,9 +132,7 @@ def train_and_evaluate(model, train_loader, eval_loader, optimizer, scheduler, s
         model.train()
         optimizer.zero_grad(set_to_none=True)
 
-        step = 0
-        while step < len(train_loader):  # Assuming train_loader has a length or similar
-            xb, yb = train_loader.get_batch()
+        for step, (xb, yb) in enumerate(train_loader):
             logits, loss = model(xb, yb)
             loss = loss / accumulation_steps  # Normalize loss for accumulation
             loss.backward()
@@ -144,7 +142,6 @@ def train_and_evaluate(model, train_loader, eval_loader, optimizer, scheduler, s
                 optimizer.step()
                 optimizer.zero_grad(set_to_none=True)
                 scheduler.step()
-            step += 1
 
         train_loss[e] = loss.item()
 
@@ -152,13 +149,15 @@ def train_and_evaluate(model, train_loader, eval_loader, optimizer, scheduler, s
         if e % config.eval_steps == 0 or e == config.epochs - 1:
             model.eval()
             with torch.no_grad():
-                xvb, yvb = eval_loader.get_batch()
-                _, eval_loss = model(xvb, yvb)
+                for xvb, yvb in eval_loader:
+                    _, eval_loss = model(xvb, yvb)
+                    break  # Only evaluate one batch to save time
 
             print(f"Epoch: {e}\ttrain_loss: {loss:.4f}\teval_loss: {eval_loss:.4f}")
             wandb.log({"train_loss": loss.item(), "eval_loss": eval_loss.item()})
 
             save_model(model, optimizer, scheduler, e, loss.item(), eval_loss.item(), save_dir, config)
+
 def save_model(model, optimizer, scheduler, epoch, train_loss, eval_loss, save_dir, config):
     """Save the model state and relevant information."""
     save_path = os.path.join(save_dir, f"gpt_model_epoch_{epoch}.pth")
