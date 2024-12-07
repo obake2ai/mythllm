@@ -7,6 +7,7 @@ import torch
 import wandb
 import click
 import tiktoken
+from tokenizers import Tokenizer
 
 from src.gpt2 import GPT
 from src.dataloader import DataLoader
@@ -28,8 +29,8 @@ wandb.login(key=wandb_api_key)
 @click.option('--lr', default=5e-4, show_default=True, help="Learning rate")
 @click.option('--epochs', default=50000, show_default=True, help="Number of training epochs")
 @click.option('--eval-steps', default=500, show_default=True, help="Evaluation step interval")
+@click.option('--tokenizer', default="tiktoken", show_default=True, help="Tokenizer to use: 'tiktoken' or 'huggingface'")
 @click.option('--config', default=None, type=click.Path(exists=True), help="Path to JSON config file")
-
 def train_model(**kwargs):
     """
     Main training function that initializes wandb and starts training.
@@ -50,12 +51,24 @@ def train_model(**kwargs):
     # Step 1: Load and preprocess text data
     formatted_text = load_and_format_text(config.data_dir)
 
-    # Step 2: Tokenize the text
-    tokenizer = tiktoken.get_encoding('gpt2')
-    vocab_size = tokenizer.n_vocab
-    data = torch.tensor(tokenizer.encode(formatted_text), dtype=torch.long, device=device)
+    # Step 2: Tokenizer selection
+    tokenizer_name = config.tokenizer
+    if tokenizer_name == "tiktoken":
+        tokenizer = tiktoken.get_encoding('gpt2')
+        vocab_size = tokenizer.n_vocab
+        encoded_text = tokenizer.encode(formatted_text)
+    elif tokenizer_name == "huggingface":
+        tokenizer = Tokenizer.from_file("my_custom_tokenizer.json")
+        vocab_size = tokenizer.get_vocab_size()
+        encoded_text = tokenizer.encode(formatted_text).ids
+    else:
+        raise ValueError(f"Unsupported tokenizer: {tokenizer_name}")
 
-    print(f"\nTensor shape: {data.shape}")
+    # Convert text to tensor
+    data = torch.tensor(encoded_text, dtype=torch.long, device=device)
+
+    print(f"\nUsing tokenizer: {tokenizer_name}")
+    print(f"Tensor shape: {data.shape}")
 
     # Step 3: Initialize model, optimizer, scheduler, and data loaders
     train_loader, eval_loader = initialize_data_loaders(
@@ -66,7 +79,7 @@ def train_model(**kwargs):
     model = torch.compile(model)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.lr)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=500, T_mult=2, eta_min=config.lr*0.01)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=500, T_mult=2, eta_min=config.lr * 0.01)
 
     # Step 4: Create directory for saving models
     current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -80,7 +93,6 @@ def train_model(**kwargs):
     wandb.finish()
 
 
-# Other functions remain unchanged
 def load_and_format_text(data_dir):
     """Load and format text data from the specified directory."""
     combined_text = ""
@@ -109,64 +121,6 @@ def format_text(combined_text):
     combined_text = re.sub(r"(\w+)-\n(\w+)", r"\1\2", combined_text)
     combined_text = re.sub(r"(?<!\n)\n(?!\n)", " ", combined_text)
     return "\n".join(line for line in combined_text.splitlines() if line.strip())
-
-
-def initialize_data_loaders(data, train_split, train_batch_size, eval_batch_size, context_length):
-    """Initialize data loaders for training and evaluation."""
-    n_data = len(data)
-    train_data = data[:int(n_data * train_split)]
-    eval_data = data[int(n_data * train_split):]
-
-    train_loader = DataLoader(train_data, train_batch_size, context_length)
-    eval_loader = DataLoader(eval_data, eval_batch_size, context_length)
-
-    return train_loader, eval_loader
-
-
-def train_and_evaluate(model, train_loader, eval_loader, optimizer, scheduler, save_dir, config):
-    """Train and evaluate the model."""
-    train_loss = {}
-
-    for e in range(config.epochs):
-        xb, yb = train_loader.get_batch()
-        model.train()
-
-        logits, loss = model(xb, yb)
-        optimizer.zero_grad(set_to_none=True)
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1)
-        optimizer.step()
-        scheduler.step()
-
-        train_loss[e] = loss.item()
-
-        # Evaluate periodically
-        if e % config.eval_steps == 0 or e == config.epochs - 1:
-            model.eval()
-            with torch.no_grad():
-                xvb, yvb = eval_loader.get_batch()
-                _, eval_loss = model(xvb, yvb)
-
-            print(f"Epoch: {e}\ttrain_loss: {loss:.4f}\teval_loss: {eval_loss:.4f}")
-            wandb.log({"train_loss": loss.item(), "eval_loss": eval_loss.item()})
-
-            # Save the model
-            save_model(model, optimizer, scheduler, e, loss.item(), eval_loss.item(), save_dir, config)
-
-
-def save_model(model, optimizer, scheduler, epoch, train_loss, eval_loss, save_dir, config):
-    """Save the model state and relevant information."""
-    save_path = os.path.join(save_dir, f"gpt_model_epoch_{epoch}.pth")
-    torch.save({
-        'model_state_dict': model.state_dict(),
-        'optimizer_state_dict': optimizer.state_dict(),
-        'scheduler_state_dict': scheduler.state_dict(),
-        'epoch': epoch,
-        'train_loss': train_loss,
-        'eval_loss': eval_loss,
-        'config': dict(config)
-    }, save_path)
-    print(f"Model saved to {save_path}")
 
 
 if __name__ == "__main__":
