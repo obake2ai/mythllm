@@ -29,6 +29,7 @@ wandb.login(key=wandb_api_key)
 @click.option('--lr', default=5e-4, show_default=True, help="Learning rate")
 @click.option('--epochs', default=50000, show_default=True, help="Number of training epochs")
 @click.option('--eval-steps', default=500, show_default=True, help="Evaluation step interval")
+@click.option('--accumulation-steps', default=4, show_default=True, help="Number of steps for gradient accumulation")
 @click.option('--tokenizer', default=None, type=click.Path(exists=True), help="Path to custom tokenizer file (if not using tiktoken)")
 @click.option('--config', default=None, type=click.Path(exists=True), help="Path to JSON config file")
 def train_model(**kwargs):
@@ -39,55 +40,49 @@ def train_model(**kwargs):
     if kwargs['config']:
         with open(kwargs['config'], 'r') as f:
             json_config = json.load(f)
-        # Overwrite default options with values from JSON
         kwargs.update(json_config)
 
-    # Initialize wandb with all passed options
     wandb.init(project=kwargs["project_name"], config=kwargs)
     config = wandb.config
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    # Step 1: Load and preprocess text data
+    # Load and preprocess text data
     formatted_text = load_and_format_text(config.data_dir)
 
-    # Step 2: Tokenizer selection by path
+    # Tokenizer selection
     if config.tokenizer:
-        print(f"Using custom tokenizer from: {config.tokenizer}")
         tokenizer = Tokenizer.from_file(config.tokenizer)
         vocab_size = tokenizer.get_vocab_size()
         encoded_text = tokenizer.encode(formatted_text).ids
     else:
-        print("Using default tiktoken tokenizer (GPT-2 encoding)")
         tokenizer = tiktoken.get_encoding('gpt2')
         vocab_size = tokenizer.n_vocab
         encoded_text = tokenizer.encode(formatted_text)
 
-    # Convert text to tensor
     data = torch.tensor(encoded_text, dtype=torch.long, device=device)
 
-    print(f"\nTensor shape: {data.shape}")
-
-    # Step 3: Initialize model, optimizer, scheduler, and data loaders
     train_loader, eval_loader = initialize_data_loaders(
         data, config.train_split, config.train_batch_size, config.eval_batch_size, config.context_length
     )
 
-    model = GPT(vocab_size=vocab_size, d_model=config.d_model, n_heads=config.n_heads, n_layers=config.n_layers, context_length=config.context_length).to(device)
+    model = GPT(
+        vocab_size=vocab_size, d_model=config.d_model, n_heads=config.n_heads,
+        n_layers=config.n_layers, context_length=config.context_length
+    ).to(device)
     model = torch.compile(model)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.lr)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=500, T_mult=2, eta_min=config.lr * 0.01)
 
-    # Step 4: Create directory for saving models
+    # Create directory for saving models
     current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
     model_save_dir = os.path.join(config.save_dir, current_time)
     os.makedirs(model_save_dir, exist_ok=True)
 
-    # Step 5: Train the model
+    # Train and evaluate
     train_and_evaluate(model, train_loader, eval_loader, optimizer, scheduler, model_save_dir, config)
 
-    # Finalize wandb
     wandb.finish()
 
 def initialize_data_loaders(data, train_split, train_batch_size, eval_batch_size, context_length):
@@ -116,13 +111,11 @@ def load_and_format_text(data_dir):
 
     return formatted_text
 
-
 def print_middle_snippet(text, label):
     """Print a snippet of the text for verification."""
     middle_index = len(text) // 2
     snippet = text[middle_index - 250: middle_index + 250]
     print(f"\n{label} (Middle 500 characters):\n{snippet}")
-
 
 def format_text(combined_text):
     """Format text by removing unnecessary line breaks and cleaning up the input."""
@@ -133,21 +126,26 @@ def format_text(combined_text):
 def train_and_evaluate(model, train_loader, eval_loader, optimizer, scheduler, save_dir, config):
     """Train and evaluate the model."""
     train_loss = {}
+    accumulation_steps = config.accumulation_steps
 
     for e in range(config.epochs):
-        xb, yb = train_loader.get_batch()
         model.train()
-
-        logits, loss = model(xb, yb)
         optimizer.zero_grad(set_to_none=True)
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1)
-        optimizer.step()
-        scheduler.step()
+
+        for step, (xb, yb) in enumerate(train_loader):
+            logits, loss = model(xb, yb)
+            loss = loss / accumulation_steps  # Normalize loss for accumulation
+            loss.backward()
+
+            if (step + 1) % accumulation_steps == 0 or step == len(train_loader) - 1:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1)
+                optimizer.step()
+                optimizer.zero_grad(set_to_none=True)
+                scheduler.step()
 
         train_loss[e] = loss.item()
 
-        # Evaluate periodically
+        # Evaluation logic
         if e % config.eval_steps == 0 or e == config.epochs - 1:
             model.eval()
             with torch.no_grad():
@@ -157,9 +155,7 @@ def train_and_evaluate(model, train_loader, eval_loader, optimizer, scheduler, s
             print(f"Epoch: {e}\ttrain_loss: {loss:.4f}\teval_loss: {eval_loss:.4f}")
             wandb.log({"train_loss": loss.item(), "eval_loss": eval_loss.item()})
 
-            # Save the model
             save_model(model, optimizer, scheduler, e, loss.item(), eval_loss.item(), save_dir, config)
-
 
 def save_model(model, optimizer, scheduler, epoch, train_loss, eval_loss, save_dir, config):
     """Save the model state and relevant information."""
