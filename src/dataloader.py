@@ -44,3 +44,11 @@ class DataLoader:
         if self.current_position + self.batch_size * self.context_length >= len(self.tokens):
             raise StopIteration
         return self.get_batch()
+
+    def __len__(self):
+        """
+        Return the total number of batches available.
+        """
+        total_tokens = len(self.tokens)
+        batch_size_in_tokens = self.batch_size * self.context_length
+        return (total_tokens + batch_size_in_tokens - 1) // batch_size_in_tokens
