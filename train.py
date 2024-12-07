@@ -29,7 +29,7 @@ wandb.login(key=wandb_api_key)
 @click.option('--lr', default=5e-4, show_default=True, help="Learning rate")
 @click.option('--epochs', default=50000, show_default=True, help="Number of training epochs")
 @click.option('--eval-steps', default=500, show_default=True, help="Evaluation step interval")
-@click.option('--tokenizer', default="tiktoken", show_default=True, help="Tokenizer to use: 'tiktoken' or 'huggingface'")
+@click.option('--tokenizer', default=None, type=click.Path(exists=True), help="Path to custom tokenizer file (if not using tiktoken)")
 @click.option('--config', default=None, type=click.Path(exists=True), help="Path to JSON config file")
 def train_model(**kwargs):
     """
@@ -51,24 +51,22 @@ def train_model(**kwargs):
     # Step 1: Load and preprocess text data
     formatted_text = load_and_format_text(config.data_dir)
 
-    # Step 2: Tokenizer selection
-    tokenizer_name = config.tokenizer
-    if tokenizer_name == "tiktoken":
-        tokenizer = tiktoken.get_encoding('gpt2')
-        vocab_size = tokenizer.n_vocab
-        encoded_text = tokenizer.encode(formatted_text)
-    elif tokenizer_name == "huggingface":
-        tokenizer = Tokenizer.from_file("my_custom_tokenizer.json")
+    # Step 2: Tokenizer selection by path
+    if config.tokenizer:
+        print(f"Using custom tokenizer from: {config.tokenizer}")
+        tokenizer = Tokenizer.from_file(config.tokenizer)
         vocab_size = tokenizer.get_vocab_size()
         encoded_text = tokenizer.encode(formatted_text).ids
     else:
-        raise ValueError(f"Unsupported tokenizer: {tokenizer_name}")
+        print("Using default tiktoken tokenizer (GPT-2 encoding)")
+        tokenizer = tiktoken.get_encoding('gpt2')
+        vocab_size = tokenizer.n_vocab
+        encoded_text = tokenizer.encode(formatted_text)
 
     # Convert text to tensor
     data = torch.tensor(encoded_text, dtype=torch.long, device=device)
 
-    print(f"\nUsing tokenizer: {tokenizer_name}")
-    print(f"Tensor shape: {data.shape}")
+    print(f"\nTensor shape: {data.shape}")
 
     # Step 3: Initialize model, optimizer, scheduler, and data loaders
     train_loader, eval_loader = initialize_data_loaders(
