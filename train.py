@@ -82,6 +82,44 @@ def train_model(**kwargs):
 
     wandb.finish()
 
+def initialize_data_loaders(data, train_split, train_batch_size, eval_batch_size, context_length):
+    """Initialize data loaders for training and evaluation."""
+    n_data = len(data)
+    train_data = data[:int(n_data * train_split)]
+    eval_data = data[int(n_data * train_split):]
+
+    train_loader = DataLoader(train_data, train_batch_size, context_length)
+    eval_loader = DataLoader(eval_data, eval_batch_size, context_length)
+
+    return train_loader, eval_loader
+
+def load_and_format_text(data_dir):
+    """Load and format text data from the specified directory."""
+    combined_text = ""
+    for filename in os.listdir(data_dir):
+        if filename.endswith(".txt"):
+            file_path = os.path.join(data_dir, filename)
+            with open(file_path, 'r', encoding='utf-8') as file:
+                combined_text += file.read() + "\n"
+
+    print_middle_snippet(combined_text, "Original")
+    formatted_text = format_text(combined_text)
+    print_middle_snippet(formatted_text, "Formatted")
+
+    return formatted_text
+
+def print_middle_snippet(text, label):
+    """Print a snippet of the text for verification."""
+    middle_index = len(text) // 2
+    snippet = text[middle_index - 250: middle_index + 250]
+    print(f"\n{label} (Middle 500 characters):\n{snippet}")
+
+def format_text(combined_text):
+    """Format text by removing unnecessary line breaks and cleaning up the input."""
+    combined_text = re.sub(r"(\w+)-\n(\w+)", r"\1\2", combined_text)
+    combined_text = re.sub(r"(?<!\n)\n(?!\n)", " ", combined_text)
+    return "\n".join(line for line in combined_text.splitlines() if line.strip())
+
 def train_and_evaluate(model, train_loader, eval_loader, optimizer, scheduler, save_dir, config):
     train_loss = {}
     accumulation_steps = config.accumulation_steps
