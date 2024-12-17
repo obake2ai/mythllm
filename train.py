@@ -35,10 +35,6 @@ wandb.login(key=wandb_api_key)
 @click.option('--tokenizer', default=None, type=click.Path(exists=True), help="Path to custom tokenizer file (if not using tiktoken)")
 @click.option('--config', default=None, type=click.Path(exists=True), help="Path to JSON config file")
 def train_model(**kwargs):
-    """
-    Main training function that initializes wandb and starts training.
-    """
-    # Load JSON config file if provided
     if kwargs['config']:
         with open(kwargs['config'], 'r') as f:
             json_config = json.load(f)
@@ -49,10 +45,8 @@ def train_model(**kwargs):
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    # Load and preprocess text data
     formatted_text = load_and_format_text(config.data_dir)
 
-    # Tokenizer selection
     if config.tokenizer:
         tokenizer = Tokenizer.from_file(config.tokenizer)
         vocab_size = tokenizer.get_vocab_size()
@@ -77,56 +71,18 @@ def train_model(**kwargs):
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.lr)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=500, T_mult=2, eta_min=config.lr * 0.01)
 
-    # Create directory for saving models
     current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
     model_save_dir = os.path.join(config.save_dir, current_time)
     os.makedirs(model_save_dir, exist_ok=True)
 
-    # Train and evaluate
+    # Log model save directory
+    wandb.config.update({"model_save_dir": model_save_dir})
+
     train_and_evaluate(model, train_loader, eval_loader, optimizer, scheduler, model_save_dir, config)
 
     wandb.finish()
 
-def initialize_data_loaders(data, train_split, train_batch_size, eval_batch_size, context_length):
-    """Initialize data loaders for training and evaluation."""
-    n_data = len(data)
-    train_data = data[:int(n_data * train_split)]
-    eval_data = data[int(n_data * train_split):]
-
-    train_loader = DataLoader(train_data, train_batch_size, context_length)
-    eval_loader = DataLoader(eval_data, eval_batch_size, context_length)
-
-    return train_loader, eval_loader
-
-def load_and_format_text(data_dir):
-    """Load and format text data from the specified directory."""
-    combined_text = ""
-    for filename in os.listdir(data_dir):
-        if filename.endswith(".txt"):
-            file_path = os.path.join(data_dir, filename)
-            with open(file_path, 'r', encoding='utf-8') as file:
-                combined_text += file.read() + "\n"
-
-    print_middle_snippet(combined_text, "Original")
-    formatted_text = format_text(combined_text)
-    print_middle_snippet(formatted_text, "Formatted")
-
-    return formatted_text
-
-def print_middle_snippet(text, label):
-    """Print a snippet of the text for verification."""
-    middle_index = len(text) // 2
-    snippet = text[middle_index - 250: middle_index + 250]
-    print(f"\n{label} (Middle 500 characters):\n{snippet}")
-
-def format_text(combined_text):
-    """Format text by removing unnecessary line breaks and cleaning up the input."""
-    combined_text = re.sub(r"(\w+)-\n(\w+)", r"\1\2", combined_text)
-    combined_text = re.sub(r"(?<!\n)\n(?!\n)", " ", combined_text)
-    return "\n".join(line for line in combined_text.splitlines() if line.strip())
-
 def train_and_evaluate(model, train_loader, eval_loader, optimizer, scheduler, save_dir, config):
-    """Train and evaluate the model."""
     train_loss = {}
     accumulation_steps = config.accumulation_steps
 
@@ -137,11 +93,10 @@ def train_and_evaluate(model, train_loader, eval_loader, optimizer, scheduler, s
         epoch_loss = 0.0
         total_steps = len(train_loader)
 
-        # Add progress bar
         with tqdm(total=total_steps, desc=f"Epoch {e + 1}/{config.epochs}") as pbar:
             for step, (xb, yb) in enumerate(train_loader):
                 logits, loss = model(xb, yb)
-                loss = loss / accumulation_steps  # Normalize loss for accumulation
+                loss = loss / accumulation_steps
                 loss.backward()
 
                 epoch_loss += loss.item()
@@ -152,25 +107,37 @@ def train_and_evaluate(model, train_loader, eval_loader, optimizer, scheduler, s
                     optimizer.zero_grad(set_to_none=True)
                     scheduler.step()
 
+                    # Log learning rate, gradient norm, step time, and loss
+                    current_lr = scheduler.get_last_lr()[0]
+                    grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1)
+                    wandb.log({
+                        "step_loss": loss.item(),
+                        "learning_rate": current_lr,
+                        "gradient_norm": grad_norm,
+                    })
+
                 pbar.update(1)
                 pbar.set_postfix({"loss": loss.item()})
 
         train_loss[e] = epoch_loss / total_steps
 
-        # Evaluation logic
         if e % config.eval_steps == 0 or e == config.epochs - 1:
             model.eval()
             with torch.no_grad():
                 for xvb, yvb in eval_loader:
                     _, eval_loss = model(xvb, yvb)
-                    break  # Only evaluate one batch to save time
+                    break
 
-            print(f"\nEpoch: {e}\ttrain_loss: {train_loss[e]:.4f}\teval_loss: {eval_loss:.4f}")
-            wandb.log({"train_loss": train_loss[e], "eval_loss": eval_loss.item()})
+            wandb.log({
+                "train_loss": train_loss[e],
+                "eval_loss": eval_loss.item(),
+                "epoch": e,
+                "model_save_path": os.path.join(save_dir, f"gpt_model_epoch_{e}.pth"),
+            })
 
             save_model(model, optimizer, scheduler, e, train_loss[e], eval_loss.item(), save_dir, config)
+
 def save_model(model, optimizer, scheduler, epoch, train_loss, eval_loss, save_dir, config):
-    """Save the model state and relevant information."""
     save_path = os.path.join(save_dir, f"gpt_model_epoch_{epoch}.pth")
     torch.save({
         'model_state_dict': model.state_dict(),
@@ -181,7 +148,7 @@ def save_model(model, optimizer, scheduler, epoch, train_loss, eval_loss, save_d
         'eval_loss': eval_loss,
         'config': dict(config)
     }, save_path)
-    print(f"Model saved to {save_path}")
+    wandb.log({"model_save_path": save_path})
 
 if __name__ == "__main__":
     train_model()
